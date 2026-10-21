@@ -63,6 +63,17 @@ def create_app(store: TaskStore = None) -> Flask:
     def health():
         return jsonify({"status": "ok"}), 200
 
+    @app.get("/health/details")
+    def health_details():
+        return jsonify(
+            {
+                "status": "ok",
+                "service": APP_NAME,
+                "version": "1.0.0",
+                "tasks": app.config["store"].count(),
+            }
+        ), 200
+
     @app.get("/tasks")
     def list_tasks():
         tasks = app.config["store"].list()
