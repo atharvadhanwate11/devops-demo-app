@@ -17,7 +17,14 @@ from flask import Flask, jsonify, request
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import APP_NAME, DEFAULT_PORT, MAX_TITLE_LENGTH, MIN_TITLE_LENGTH
-from .metrics import REGISTRY, http_requests, request_latency, tasks_created, tasks_current
+from .metrics import (
+    REGISTRY,
+    http_requests,
+    request_latency,
+    tasks_created,
+    tasks_current,
+    tasks_deleted,
+)
 from .store import TaskStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -96,6 +103,7 @@ def create_app(store: TaskStore = None) -> Flask:
     @app.delete("/tasks/<int:task_id>")
     def delete_task(task_id: int):
         if app.config["store"].delete(task_id):
+            tasks_deleted.inc()
             tasks_current.set(app.config["store"].count())
             return jsonify({"deleted": task_id}), 200
         return jsonify({"error": f"task {task_id} not found"}), 404
