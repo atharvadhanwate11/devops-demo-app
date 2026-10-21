@@ -52,7 +52,8 @@ for i in $(seq 1 60); do
   sleep 2
 done
 echo
-VERSION=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/api/json" | jq -r '.version')
+VERSION=$(curl -sI -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/api/json" \
+  | awk -F': ' '/^[Xx]-Jenkins:/{print $2}' | tr -d '\r')
 echo "  Jenkins version: ${VERSION:-unknown}"
 if [ -z "$VERSION" ]; then
   red "ERROR: Jenkins API is not reachable with $JENKINS_USER/$JENKINS_PASS"
@@ -73,33 +74,33 @@ cat > /tmp/jenkins_job_config.xml <<EOF
 <flow-definition plugin="workflow-job">
   <description>Task API CI/CD pipeline - code to Git to Jenkins to Docker to Kubernetes</description>
   <keepDependencies>false</keepDependencies>
-  <properties/>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.BooleanParameterDefinition>
+          <name>PUSH_IMAGE</name>
+          <description>Push the Docker image to Docker Hub (needs the dockerhub credentials)</description>
+          <defaultValue>false</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
   <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps">
-    <scm class="org.jenkinsci.plugins.workflow.scm.GitSCM" plugin="git">
-      <id>task-api-pipeline-scm</id>
-      <remote>${REPO_URL}</remote>
-      <traits/>
-      <spec>
-        <branches>
-          <hudson.plugins.git.BranchSpec>
-            <name>*/main</name>
-          </hudson.plugins.git.BranchSpec>
-        </branches>
-        <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
-        <submoduleCfg class="list"/>
-        <userRemoteConfigs>
-          <hudson.plugins.git.UserRemoteConfig>
-            <url>${REPO_URL}</url>
-          </hudson.plugins.git.UserRemoteConfig>
-        </userRemoteConfigs>
-        <disableSubmodule>false</disableSubmodule>
-        <shallow>false</shallow>
-        <remoteName>origin</remoteName>
-        <reference>*/main</reference>
-        <credentialsId></credentialsId>
-        <traits/>
-        <gitTool>Default</gitTool>
-      </spec>
+    <scm class="hudson.plugins.git.GitSCM" plugin="git">
+      <configVersion>2</configVersion>
+      <userRemoteConfigs>
+        <hudson.plugins.git.UserRemoteConfig>
+          <url>${REPO_URL}</url>
+        </hudson.plugins.git.UserRemoteConfig>
+      </userRemoteConfigs>
+      <branches>
+        <hudson.plugins.git.BranchSpec>
+          <name>*/main</name>
+        </hudson.plugins.git.BranchSpec>
+      </branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <submoduleCfg class="list"/>
+      <extensions/>
     </scm>
     <scriptPath>Jenkinsfile</scriptPath>
     <lightweight>false</lightweight>
@@ -135,17 +136,17 @@ fi
 # ------------------------------------------------------------------ 4. build
 if [ "$TRIGGER" -eq 1 ]; then
   bold "[4/4] Triggering a build and waiting for the result"
-  # Jenkins >= 2.5xx rejects a bare POST /build ("Nothing is submitted"),
-  # so the build is triggered through /buildWithParameters with the
-  # pipeline's own parameter (PUSH_IMAGE=false -> no Docker Hub push).
+  # Jenkins >= 2.5xx rejects a bare POST /build ("Nothing is submitted").
+  # The form field "json" is what the Build Now button sends, and it works
+  # for a job with parameters (PUSH_IMAGE stays false) and without.
   curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null -w "  trigger HTTP %{http_code}\n" \
     -X POST -H "$CRUMB_FIELD: $CRUMB_VALUE" \
-    --data "PUSH_IMAGE=false" "$JENKINS_URL/job/$JOB_NAME/buildWithParameters"
+    --data "json={}" "$JENKINS_URL/job/$JOB_NAME/build"
 
   BUILD_NO=""
   for i in $(seq 1 60); do
     BUILD_NO=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" \
-      "$JENKINS_URL/job/$JOB_NAME/api/json?tree=builds[number,result,building]{0,5}" \
+      "$JENKINS_URL/job/$JOB_NAME/api/json?tree=builds%5Bnumber,result,building%5D" \
       | jq -r '.builds[0].number // empty')
     [ -n "$BUILD_NO" ] && break
     sleep 2
