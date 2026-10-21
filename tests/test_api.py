@@ -96,3 +96,11 @@ def test_tasks_current_gauge_matches_store(client):
     client.post("/tasks", json={"title": "gauge task"})
     client.get("/metrics")
     assert REGISTRY.get_sample_value("tasks_current") == 1
+
+
+def test_health_details_returns_service_info(client):
+    response = client.get("/health/details")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "ok"
+    assert body["service"] == "task-api"
