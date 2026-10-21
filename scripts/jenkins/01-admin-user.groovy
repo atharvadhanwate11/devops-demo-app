@@ -1,7 +1,7 @@
 // Creates the local demo admin user (admin/admin) and locks down Jenkins.
 // Runs automatically at Jenkins startup from $JENKINS_HOME/init.groovy.d/.
 import jenkins.model.Jenkins
-import jenkins.security.HudsonPrivateSecurityRealm
+import hudson.security.HudsonPrivateSecurityRealm
 import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
 
 def jenkins = Jenkins.get()
