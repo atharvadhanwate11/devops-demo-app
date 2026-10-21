@@ -96,3 +96,11 @@ def test_tasks_current_gauge_matches_store(client):
     client.post("/tasks", json={"title": "gauge task"})
     client.get("/metrics")
     assert REGISTRY.get_sample_value("tasks_current") == 1
+
+
+def test_delete_task_increments_deleted_counter(client):
+    created = client.post("/tasks", json={"title": "counted"}).get_json()
+    before = REGISTRY.get_sample_value("tasks_deleted_total") or 0.0
+    client.delete(f"/tasks/{created['id']}")
+    after = REGISTRY.get_sample_value("tasks_deleted_total") or 0.0
+    assert after == before + 1
