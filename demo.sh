@@ -281,7 +281,7 @@ section_grafana() {
   run "bash scripts/traffic.sh 20 1 $APP_URL"
 
   explain "Querying Prometheus through Grafana (panel 2: tasks created per second):"
-  run "DSUID=\$(curl -s -u admin:admin http://localhost:3000/api/datasources | jq -r '.[0].uid'); curl -s -u admin:admin -H 'Content-Type: application/json' -X POST http://localhost:3000/api/ds/query -d \"{\\\"queries\\\":[{\\\"refId\\\":\\\"A\\\",\\\"datasource\\\":{\\\"uid\\\":\\\"\\\$DSUID\\\"},\\\"expr\\\":\\\"rate(tasks_created_total[1m])\\\"}],\\\"from\\\":\\\"now-5m\\\",\\\"to\\\":\\\"now\\\"}\" | jq -r '.results.A.frames[0].data.values[0][0] // \"no data\"' | xargs echo 'latest tasks/s ='"
+  run "DSUID=\$(curl -s -u admin:admin http://localhost:3000/api/datasources | jq -r '.[0].uid'); curl -s -u admin:admin --data-urlencode 'query=sum(rate(tasks_created_total[1m]))' \"http://localhost:3000/api/datasources/proxy/uid/\$DSUID/api/v1/query\" | jq -r '.data.result[0].value[1] // \"no data\"' | xargs echo 'tasks created per second ='"
 
   browser "SWITCH TO THE BROWSER - open http://localhost:3000 (admin/admin) -> Task API - Overview"
   pause
@@ -304,6 +304,9 @@ section_trouble() {
   run "kubectl apply -f k8s/deployment.yaml"
   explain "Waiting for the new pod to fail its image pull..."
   run "sleep 20; kubectl get pods -l app=task-api"
+
+  explain "The port-forward follows the pods, so we make sure it is still up."
+  ensure_app
 
   explain "The OLD pods still serve traffic - a rolling update protects the service."
   run "kubectl get pods -l app=task-api --field-selector=status.phase=Running"
@@ -336,6 +339,7 @@ section_trouble() {
   explain "The alternative would have been: kubectl rollout undo deployment/task-api"
 
   note "STEP 5 - verify the recovery."
+  ensure_app
   run "kubectl get pods -l app=task-api"
   run "curl -s $APP_URL/health; echo"
   run "curl -s $APP_URL/tasks; echo"
