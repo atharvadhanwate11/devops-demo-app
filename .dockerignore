@@ -1,0 +1,17 @@
+.git
+.gitignore
+.gitattributes
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+k8s
+monitoring
+scripts
+docs
+*.md
+demo.sh
+Jenkinsfile
+requirements-dev.txt
