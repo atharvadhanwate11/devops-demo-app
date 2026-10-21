@@ -68,8 +68,9 @@ ensure_app() {
   explain "Nothing is answering on localhost:8000 - starting a kubectl port-forward."
   if kubectl get svc "$K8S_SERVICE" >/dev/null 2>&1; then
     pkill -f "kubectl port-forward" 2>/dev/null || true
-    nohup kubectl port-forward --address 0.0.0.0 "svc/$K8S_SERVICE" 8000:8000 \
-      > /tmp/port-forward.log 2>&1 &
+    # setsid detaches it into its own session, so it survives the demo script
+    setsid nohup kubectl port-forward --address 0.0.0.0 "svc/$K8S_SERVICE" 8000:8000 \
+      > /tmp/port-forward.log 2>&1 < /dev/null &
     echo $! > /tmp/port-forward.pid
     for i in $(seq 1 20); do
       curl -sf "$APP_URL/health" >/dev/null 2>&1 && break
@@ -159,6 +160,8 @@ section_docker() {
   run "docker history task-api:1.0 | head -n 5"
 
   explain "Running the image as a container on port 8000."
+  # the port-forward of the Kubernetes section also uses port 8000
+  run "pkill -f 'kubectl port-forward' 2>/dev/null || true"
   run "docker rm -f task-api-demo 2>/dev/null || true"
   run "docker run -d --name task-api-demo -p 8000:8000 task-api:1.0"
   run "docker ps --filter name=task-api-demo --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
@@ -221,7 +224,7 @@ section_k8s() {
 
   explain "Reaching the service from this machine through a port-forward."
   run "pkill -f 'kubectl port-forward' 2>/dev/null || true"
-  run "nohup kubectl port-forward --address 0.0.0.0 svc/task-api 8000:8000 > /tmp/port-forward.log 2>&1 & sleep 5"
+  run "setsid nohup kubectl port-forward --address 0.0.0.0 svc/task-api 8000:8000 > /tmp/port-forward.log 2>&1 < /dev/null & sleep 6"
   run "curl -s $APP_URL/health; echo"
   run "curl -s $APP_URL/metrics | grep -E '^(tasks_created_total|tasks_current)' "
 
