@@ -14,6 +14,7 @@ JENKINS_URL="${JENKINS_URL:-http://localhost:8080}"
 JENKINS_USER="${JENKINS_USER:-admin}"
 JENKINS_PASS="${JENKINS_PASS:-admin}"
 JOB_NAME="${JOB_NAME:-task-api-pipeline}"
+CJ="${JENKINS_COOKIES:-/tmp/jenkins_cookies.txt}"
 REPO_URL="${REPO_URL:-https://github.com/atharvadhanwate11/devops-demo-app.git}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -32,7 +33,7 @@ red()   { printf '\033[0;31m%s\033[0m\n' "$*"; }
 
 api() { # api <method> <path> [data-file]
   local method="$1" path="$2" data="${3:-}"
-  local args=(-s -o /tmp/jenkins_api.out -w "%{http_code}" -u "$JENKINS_USER:$JENKINS_PASS" -X "$method")
+  local args=(-s -o /tmp/jenkins_api.out -w "%{http_code}" -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -X "$method")
   [ -n "$data" ] && args+=(-H "Content-Type: application/xml" --data-binary "@$data")
   curl "${args[@]}" "$JENKINS_URL$path"
 }
@@ -44,14 +45,14 @@ bold "=============================================================="
 # ------------------------------------------------------------------ 1. wait
 bold "[1/4] Waiting for Jenkins at $JENKINS_URL"
 for i in $(seq 1 60); do
-  if curl -fsS -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null "$JENKINS_URL/api/json"; then
+  if curl -fsS -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null "$JENKINS_URL/api/json"; then
     break
   fi
   printf "."
   sleep 2
 done
 echo
-VERSION=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/api/json" | jq -r '.version')
+VERSION=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/api/json" | jq -r '.version')
 echo "  Jenkins version: ${VERSION:-unknown}"
 if [ -z "$VERSION" ]; then
   red "ERROR: Jenkins API is not reachable with $JENKINS_USER/$JENKINS_PASS"
@@ -60,7 +61,7 @@ fi
 
 # ------------------------------------------------------------------ 2. crumb
 bold "[2/4] Getting the CSRF crumb"
-CRUMB_JSON=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/crumbIssuer/api/json")
+CRUMB_JSON=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/crumbIssuer/api/json")
 CRUMB_FIELD=$(echo "$CRUMB_JSON" | jq -r '.crumbRequestField')
 CRUMB_VALUE=$(echo "$CRUMB_JSON" | jq -r '.crumb')
 echo "  crumb field: $CRUMB_FIELD"
@@ -112,15 +113,15 @@ cat > /tmp/jenkins_job_config.xml <<EOF
 </flow-definition>
 EOF
 
-EXISTING=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null -w "%{http_code}" "$JENKINS_URL/job/$JOB_NAME/api/json")
+EXISTING=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null -w "%{http_code}" "$JENKINS_URL/job/$JOB_NAME/api/json")
 if [ "$EXISTING" = "200" ]; then
   echo "  job already exists - updating it"
-  CODE=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" -o /tmp/jenkins_api.out -w "%{http_code}" \
+  CODE=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /tmp/jenkins_api.out -w "%{http_code}" \
     -X POST -H "$CRUMB_FIELD: $CRUMB_VALUE" -H "Content-Type: application/xml" \
     --data-binary @/tmp/jenkins_job_config.xml "$JENKINS_URL/job/$JOB_NAME/config.xml")
   echo "  update HTTP $CODE"
 else
-  CODE=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" -o /tmp/jenkins_api.out -w "%{http_code}" \
+  CODE=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /tmp/jenkins_api.out -w "%{http_code}" \
     -X POST -H "$CRUMB_FIELD: $CRUMB_VALUE" -H "Content-Type: application/xml" \
     --data-binary @/tmp/jenkins_job_config.xml "$JENKINS_URL/createItem?name=$JOB_NAME")
   echo "  create HTTP $CODE"
@@ -134,12 +135,16 @@ fi
 # ------------------------------------------------------------------ 4. build
 if [ "$TRIGGER" -eq 1 ]; then
   bold "[4/4] Triggering a build and waiting for the result"
-  curl -s -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null -w "  trigger HTTP %{http_code}\n" \
-    -X POST -H "$CRUMB_FIELD: $CRUMB_VALUE" "$JENKINS_URL/job/$JOB_NAME/build"
+  # Jenkins >= 2.5xx rejects a bare POST /build ("Nothing is submitted"),
+  # so the build is triggered through /buildWithParameters with the
+  # pipeline's own parameter (PUSH_IMAGE=false -> no Docker Hub push).
+  curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" -o /dev/null -w "  trigger HTTP %{http_code}\n" \
+    -X POST -H "$CRUMB_FIELD: $CRUMB_VALUE" \
+    --data "PUSH_IMAGE=false" "$JENKINS_URL/job/$JOB_NAME/buildWithParameters"
 
   BUILD_NO=""
   for i in $(seq 1 60); do
-    BUILD_NO=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" \
+    BUILD_NO=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" \
       "$JENKINS_URL/job/$JOB_NAME/api/json?tree=builds[number,result,building]{0,5}" \
       | jq -r '.builds[0].number // empty')
     [ -n "$BUILD_NO" ] && break
@@ -149,7 +154,7 @@ if [ "$TRIGGER" -eq 1 ]; then
 
   RESULT=""
   for i in $(seq 1 180); do
-    RESULT=$(curl -s -u "$JENKINS_USER:$JENKINS_PASS" \
+    RESULT=$(curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" \
       "$JENKINS_URL/job/$JOB_NAME/$BUILD_NO/api/json?tree=result,building" \
       | jq -r '.result // (if .building then "RUNNING" else "UNKNOWN" end)')
     echo "    status: $RESULT"
@@ -159,7 +164,7 @@ if [ "$TRIGGER" -eq 1 ]; then
 
   echo
   bold "  console output (tail)"
-  curl -s -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/job/$JOB_NAME/$BUILD_NO/consoleText" | tail -n 60
+  curl -s -c "$CJ" -b "$CJ" -u "$JENKINS_USER:$JENKINS_PASS" "$JENKINS_URL/job/$JOB_NAME/$BUILD_NO/consoleText" | tail -n 60
 
   echo
   if [ "$RESULT" = "SUCCESS" ]; then

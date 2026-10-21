@@ -16,11 +16,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 2) application code
 COPY app/ ./app/
 
-# 3) run as a non-root user
-RUN groupadd --system appgroup \
-    && useradd --system --gid appgroup --home-dir /app --shell /usr/sbin/nologin appuser \
+# 3) run as a non-root user with a FIXED numeric uid.
+#    Kubernetes refuses to start a container with runAsNonRoot=true when the
+#    image user is a name (it cannot verify that it is not root), so the uid
+#    must be numeric and stable: appuser = uid 10001.
+RUN groupadd --gid 10001 appgroup \
+    && useradd --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin appuser \
     && chown -R appuser:appgroup /app
-USER appuser
+USER 10001
 
 EXPOSE 8000
 

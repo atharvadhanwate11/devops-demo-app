@@ -10,6 +10,18 @@ set -uo pipefail
 
 export PATH="$HOME/bin:$PATH"
 
+# Jenkins 2.580.1 needs Java 21. Pick the newest JDK we can find.
+for candidate in /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/java-25-openjdk-amd64 \
+                 /usr/lib/jvm/java-21-openjdk-arm64 /usr/lib/jvm/default-java; do
+  if [ -x "$candidate/bin/java" ]; then
+    export JAVA_HOME="$candidate"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    break
+  fi
+done
+echo "Using JAVA_HOME=${JAVA_HOME:-<default>}"
+java -version 2>&1 | head -n 1
+
 JENKINS_DIR="$HOME/jenkins"
 WAR="$JENKINS_DIR/jenkins.war"
 JENKINS_HOME="$JENKINS_DIR/home"
@@ -18,7 +30,7 @@ PIDFILE="$JENKINS_DIR/jenkins.pid"
 PORT="${JENKINS_PORT:-8080}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Pinned versions (stable and Java 17 compatible).
+# Pinned versions (stable, needs Java 21).
 JENKINS_VERSION="${JENKINS_VERSION:-2.580.1}"
 PLUGIN_MANAGER_VERSION="${PLUGIN_MANAGER_VERSION:-2.15.0}"
 PLUGIN_MANAGER_JAR="$JENKINS_DIR/jenkins-plugin-manager.jar"
