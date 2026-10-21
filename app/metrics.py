@@ -31,6 +31,13 @@ http_requests = Counter(
     registry=REGISTRY,
 )
 
+# Counter of deleted tasks -> exposed as tasks_deleted_total
+tasks_deleted = Counter(
+    "tasks_deleted",
+    "Total number of tasks deleted",
+    registry=REGISTRY,
+)
+
 # Gauge holding the number of tasks currently stored in memory
 tasks_current = Gauge(
     "tasks_current",
